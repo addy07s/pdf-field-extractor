@@ -143,6 +143,33 @@ Processed files are also saved under `outputs/` with a timestamp.
 
 ---
 
+## Docker deployment
+
+Build and run the Streamlit app in a container with Tesseract pre-installed. **Never bake secrets into the image** — pass `GEMINI_API_KEY` (and other config) at runtime.
+
+**Build**
+
+```bash
+docker build -t pdf-field-extractor .
+```
+
+**Run** (map port 8501, supply API key via environment)
+
+```bash
+docker run --rm -p 8501:8501 \
+  -e GEMINI_API_KEY=your-gemini-api-key-here \
+  -e GEMINI_MODEL=gemini-2.5-flash \
+  -e VISION_PROVIDER=cloud \
+  -e BATCH_CONCURRENCY=1 \
+  pdf-field-extractor
+```
+
+Open `http://localhost:8501` in your browser.
+
+On cloud platforms (Railway, Render, Fly.io, ECS, etc.), set the same environment variables in the service dashboard and expose container port **8501**. The `GEMINI_API_KEY` must be configured there — it is not read from a `.env` file inside the image.
+
+---
+
 ## Configuring fields
 
 Field definitions live in [`config/fields.yaml`](config/fields.yaml). This file drives:
