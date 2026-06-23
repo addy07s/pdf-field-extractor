@@ -1,0 +1,47 @@
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+dist/
+build/
+.venv/
+venv/
+env/
+
+# Outputs
+outputs/
+batch_output/
+test_run/
+/*.csv
+/*.xlsx
+
+# IDE / OS
+.idea/
+.vscode/
+.cursor/
+*.cursor/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Manual diagnostics
+smoke_test.py
+smoke_output.*
+run_real_batch.py
+
+# Private sample data (never commit real invoices)
+tests/fixtures/samples/
+
+# Test / tooling
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage

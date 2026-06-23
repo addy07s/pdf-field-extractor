@@ -1,0 +1,77 @@
+# Invoice field definitions — add/remove entries to change extraction schema,
+# prompt, validators, and output columns. No code changes required.
+fields:
+  - key: company_name
+    display_label: Company Name
+    description: the legal or trade name of the invoice supplier
+    data_type: string
+    validators:
+      - grounding
+
+  - key: invoice_number
+    display_label: Invoice Number
+    description: the unique invoice or bill number printed on the document
+    data_type: string
+    validators:
+      - grounding
+
+  - key: invoice_date
+    display_label: Invoice Date
+    description: the date the invoice was issued (DD/MM/YYYY or similar)
+    data_type: date
+    validators:
+      - date
+      - grounding
+
+  - key: gstin
+    display_label: GSTIN
+    description: the supplier's 15-character GST identification number
+    data_type: string
+    validators:
+      - gstin
+      - grounding
+
+  - key: pan
+    display_label: PAN
+    description: the supplier's 10-character Permanent Account Number
+    data_type: string
+    validators:
+      - pan
+      - grounding
+
+  - key: description
+    display_label: Description
+    description: brief description of goods or services billed
+    data_type: string
+    validators:
+      - grounding
+
+  - key: taxable_amount
+    display_label: Taxable Amount
+    description: >-
+      The taxable value / base amount of goods or services BEFORE any GST
+      tax is added (e.g. the line-item amount or sub-total before tax). Not the final total.
+    data_type: number
+    validators:
+      - grounding
+      - number
+
+  - key: gst_amount
+    display_label: GST Amount
+    description: >-
+      The TOTAL GST tax amount on this invoice. If the invoice shows a single IGST line
+      (used for inter-state sales), use that value. If it shows separate CGST and SGST lines
+      (used for same-state sales), ADD them together to get the total GST. Do NOT include the
+      taxable base amount or the final total — only the tax itself.
+    data_type: number
+    validators:
+      - number
+      - grounding
+
+  - key: total_amount
+    display_label: Total Amount
+    description: invoice grand total payable in INR including taxes
+    data_type: number
+    validators:
+      - number
+      - grounding
