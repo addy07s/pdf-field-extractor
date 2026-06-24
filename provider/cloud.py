@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import random
 from typing import Any
 
 from google import genai
@@ -25,9 +26,9 @@ _SYSTEM_INSTRUCTION = (
     "Do NOT guess or fabricate values. Return only the structured object."
 )
 
-_MAX_RETRIES = 4
+_MAX_RETRIES = 6
 _BASE_BACKOFF_SEC = 1.0
-_RETRYABLE_STATUS_CODES = frozenset({429})
+_RETRYABLE_STATUS_CODES = frozenset({429, 500, 503})
 
 
 def build_field_guidance(field_configs: list[FieldConfig]) -> str:
@@ -124,8 +125,15 @@ def _resolve_model(model: str | None) -> str:
     return resolved
 
 
-def _is_retryable(exc: genai_errors.ClientError) -> bool:
+def _is_retryable(exc: genai_errors.APIError) -> bool:
     return exc.code in _RETRYABLE_STATUS_CODES
+
+
+def _retry_backoff_seconds(attempt: int) -> float:
+    """Exponential backoff with jitter: ~1s, 2s, 4s, 8s between attempts."""
+    base_delay = _BASE_BACKOFF_SEC * (2**attempt)
+    jitter = random.uniform(0, base_delay * 0.5)
+    return base_delay + jitter
 
 
 class CloudVisionProvider(VisionProvider):
@@ -188,10 +196,11 @@ class CloudVisionProvider(VisionProvider):
                     contents=contents,
                     config=config,
                 )
-            except genai_errors.ClientError as exc:
+            except genai_errors.APIError as exc:
                 last_error = exc
                 if _is_retryable(exc) and attempt < self._max_retries - 1:
-                    await asyncio.sleep(_BASE_BACKOFF_SEC * (2**attempt))
+                    delay = _retry_backoff_seconds(attempt)
+                    await asyncio.sleep(delay)
                     continue
                 raise ProviderError(
                     f"Gemini API error (HTTP {exc.code}): {exc}"

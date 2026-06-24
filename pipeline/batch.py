@@ -98,6 +98,10 @@ async def process_batch(
 
     Each path yields exactly one ``DocumentResult`` in the same order as
     ``pdf_paths``, whether processing succeeded or failed.
+
+    Keep ``max_concurrency`` modest (3–5 on Gemini Flash) to reduce 503 overload
+    errors when Google's model is under heavy load; higher values fan out more
+    simultaneous requests and can worsen transient UNAVAILABLE responses.
     """
     paths = [Path(p) for p in pdf_paths]
     total = len(paths)

@@ -245,17 +245,16 @@ Ensure Ollama is running before processing.
 `BATCH_CONCURRENCY` controls how many invoices are processed in parallel.
 
 ```env
-BATCH_CONCURRENCY=1
+BATCH_CONCURRENCY=3
 ```
 
+| Tier | Recommended value |
+|------|-------------------|
+| Gemini **free** tier | `1` or `2` — avoids 429 rate-limit errors |
+| Gemini **paid** / Flash | `3`–`5` — balances speed vs 503 overload errors |
+| High quota / batch jobs | `5`–`10+` depending on quota |
 
-| Tier                         | Recommended value                         |
-| ---------------------------- | ----------------------------------------- |
-| Gemini **free** tier         | `1` or `2` — avoids 429 rate-limit errors |
-| Gemini **paid** / production | `5`–`10+` depending on quota              |
-
-
-The Streamlit sidebar shows the active value. Lower concurrency is slower but safer on free keys.
+The Streamlit sidebar shows the active value. **Lower concurrency reduces HTTP 503 (model overloaded) failures** on Gemini Flash — firing many simultaneous requests during a Google-side spike tends to trigger more `UNAVAILABLE` responses. The provider retries 429/500/503 automatically with exponential backoff (up to 6 attempts), but keeping concurrency modest still helps.
 
 ---
 
@@ -324,6 +323,5 @@ pytest
 
 ---
 
-## License
 
-MIT (or your chosen license)
+

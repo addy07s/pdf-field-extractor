@@ -206,3 +206,65 @@ async def test_extract_retries_on_rate_limit(
 
     assert result == {"gstin": None, "total_amount": None}
     assert mock_generate.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_extract_retries_on_server_unavailable(
+    sample_field_configs: list[FieldConfig],
+) -> None:
+    from google.genai import errors as genai_errors
+
+    success_response = MagicMock()
+    success_response.text = json.dumps({"gstin": "29ABCDE1234F1Z5", "total_amount": "100"})
+
+    mock_generate = AsyncMock(
+        side_effect=[
+            genai_errors.ServerError(
+                503,
+                {"error": {"message": "model overloaded", "status": "UNAVAILABLE"}},
+            ),
+            success_response,
+        ]
+    )
+    mock_client = MagicMock()
+    mock_client.aio.models.generate_content = mock_generate
+
+    provider = CloudVisionProvider(
+        api_key="test-key",
+        model="test-model",
+        client=mock_client,
+        max_retries=6,
+    )
+
+    result = await provider.extract(PNG_BYTES, "", sample_field_configs)
+
+    assert result["gstin"] == "29ABCDE1234F1Z5"
+    assert mock_generate.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_extract_fails_only_after_retryable_errors_exhausted(
+    sample_field_configs: list[FieldConfig],
+) -> None:
+    from google.genai import errors as genai_errors
+
+    mock_generate = AsyncMock(
+        side_effect=genai_errors.ServerError(
+            503,
+            {"error": {"message": "model overloaded", "status": "UNAVAILABLE"}},
+        )
+    )
+    mock_client = MagicMock()
+    mock_client.aio.models.generate_content = mock_generate
+
+    provider = CloudVisionProvider(
+        api_key="test-key",
+        model="test-model",
+        client=mock_client,
+        max_retries=3,
+    )
+
+    with pytest.raises(ProviderError, match="HTTP 503"):
+        await provider.extract(PNG_BYTES, "", sample_field_configs)
+
+    assert mock_generate.await_count == 3
