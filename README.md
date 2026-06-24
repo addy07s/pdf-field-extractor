@@ -8,12 +8,14 @@ Extract structured fields from Indian GST tax invoices—digital PDFs and scanne
 
 The AI **proposes** field values. It does **not** decide trust. Separate validation code assigns every field a status (`OK`, `LOW_CONFIDENCE`, `NOT_FOUND`, or `FAILED_VALIDATION`). In Excel:
 
-| Fill | Meaning |
-|------|---------|
-| No highlight | Passed all checks |
-| **Yellow** | Low confidence — verify before using |
-| **Red** | Failed validation — do not use as-is |
-| **Grey** | Not found / processing failed |
+
+| Fill         | Meaning                              |
+| ------------ | ------------------------------------ |
+| No highlight | Passed all checks                    |
+| **Yellow**   | Low confidence — verify before using |
+| **Red**      | Failed validation — do not use as-is |
+| **Grey**     | Not found / processing failed        |
+
 
 A blank flagged cell is preferable to a confident wrong number.
 
@@ -44,11 +46,13 @@ Image invoices (`.jpg`, `.png`) and scanned PDFs use **[Tesseract OCR](https://g
 
 **Tesseract must be installed and on your system `PATH`.** Installing the binary alone is not enough on Windows — if `tesseract` is not found from a new terminal, OCR is silently skipped.
 
-| OS | Install | Add to PATH |
-|----|---------|-------------|
+
+| OS          | Install                                   | Add to PATH                                                             |
+| ----------- | ----------------------------------------- | ----------------------------------------------------------------------- |
 | **Windows** | `winget install UB-Mannheim.TesseractOCR` | Add `C:\Program Files\Tesseract-OCR` to the system **Path** (see below) |
-| **macOS** | `brew install tesseract` | Homebrew adds it to PATH automatically |
-| **Linux** | `sudo apt install tesseract-ocr` | Package manager adds it to PATH automatically |
+| **macOS**   | `brew install tesseract`                  | Homebrew adds it to PATH automatically                                  |
+| **Linux**   | `sudo apt install tesseract-ocr`          | Package manager adds it to PATH automatically                           |
+
 
 **Verify** (open a **new** terminal after installing):
 
@@ -172,7 +176,7 @@ On cloud platforms (Railway, Render, Fly.io, ECS, etc.), set the same environmen
 
 ## Configuring fields
 
-Field definitions live in [`config/fields.yaml`](config/fields.yaml). This file drives:
+Field definitions live in `[config/fields.yaml](config/fields.yaml)`. This file drives:
 
 - Which fields the model extracts
 - Prompt hints for each field
@@ -200,10 +204,12 @@ Restart the app after editing `fields.yaml`.
 
 Set `VISION_PROVIDER` in `.env`:
 
-| Value | Backend | When to use |
-|-------|---------|-------------|
+
+| Value             | Backend                     | When to use                                                 |
+| ----------------- | --------------------------- | ----------------------------------------------------------- |
 | `cloud` (default) | Gemini via `GEMINI_API_KEY` | Easiest setup; generally best accuracy; data sent to Google |
-| `ollama` | Local Ollama server | No cloud dependency; fully private; needs local hardware |
+| `ollama`          | Local Ollama server         | No cloud dependency; fully private; needs local hardware    |
+
 
 **Cloud (`.env`)**
 
@@ -223,12 +229,14 @@ OLLAMA_MODEL=llava
 
 Ensure Ollama is running before processing.
 
-| | Cloud (Gemini) | Local (Ollama) |
-|---|----------------|----------------|
-| Cost | Free tier limited; paid for volume | Free |
-| Privacy | Data leaves your machine | Stays on your machine |
-| Setup | API key only | Install Ollama + model |
-| Accuracy | Higher (vision models) | Depends on model/hardware |
+
+|          | Cloud (Gemini)                     | Local (Ollama)            |
+| -------- | ---------------------------------- | ------------------------- |
+| Cost     | Free tier limited; paid for volume | Free                      |
+| Privacy  | Data leaves your machine           | Stays on your machine     |
+| Setup    | API key only                       | Install Ollama + model    |
+| Accuracy | Higher (vision models)             | Depends on model/hardware |
+
 
 ---
 
@@ -240,10 +248,12 @@ Ensure Ollama is running before processing.
 BATCH_CONCURRENCY=1
 ```
 
-| Tier | Recommended value |
-|------|-------------------|
-| Gemini **free** tier | `1` or `2` — avoids 429 rate-limit errors |
-| Gemini **paid** / production | `5`–`10+` depending on quota |
+
+| Tier                         | Recommended value                         |
+| ---------------------------- | ----------------------------------------- |
+| Gemini **free** tier         | `1` or `2` — avoids 429 rate-limit errors |
+| Gemini **paid** / production | `5`–`10+` depending on quota              |
+
 
 The Streamlit sidebar shows the active value. Lower concurrency is slower but safer on free keys.
 
@@ -266,14 +276,16 @@ Trust is **earned by code**, not by model confidence.
 
 After extraction, each field passes deterministic validators configured in `fields.yaml`:
 
-| Check | What it does |
-|-------|----------------|
-| **Grounding** | Value must appear in the document text layer (exact for digital PDFs; fuzzy for OCR). Missing → yellow. |
-| **GSTIN checksum** | Validates 15-character structure and official checksum digit. Fail → red. |
-| **PAN structure** | Validates `[A-Z]{5}[0-9]{4}[A-Z]`. Fail → red. |
-| **GSTIN ↔ PAN cross-check** | Characters 3–12 of GSTIN must match PAN when both are present. Fail → red on both. |
-| **Date** | Parses common Indian formats; stores normalized ISO date. Fail → red. |
-| **Arithmetic** | When taxable + GST ≈ total (within ₹1), amounts stay OK; mismatch → yellow on all three. |
+
+| Check                       | What it does                                                                                            |
+| --------------------------- | ------------------------------------------------------------------------------------------------------- |
+| **Grounding**               | Value must appear in the document text layer (exact for digital PDFs; fuzzy for OCR). Missing → yellow. |
+| **GSTIN checksum**          | Validates 15-character structure and official checksum digit. Fail → red.                               |
+| **PAN structure**           | Validates `[A-Z]{5}[0-9]{4}[A-Z]`. Fail → red.                                                          |
+| **GSTIN ↔ PAN cross-check** | Characters 3–12 of GSTIN must match PAN when both are present. Fail → red on both.                      |
+| **Date**                    | Parses common Indian formats; stores normalized ISO date. Fail → red.                                   |
+| **Arithmetic**              | When taxable + GST ≈ total (within ₹1), amounts stay OK; mismatch → yellow on all three.                |
+
 
 Digital PDFs also use **text-layer correction** for GSTIN/PAN: if exactly one valid value exists in the document text, it replaces a misread AI value.
 
