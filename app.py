@@ -20,6 +20,7 @@ from provider import CloudVisionProvider, OllamaVisionProvider
 from provider.base import VisionProvider
 from provider.errors import ProviderError
 from sources.ocr import is_tesseract_available, log_ocr_startup_status
+from ui.styles import inject_styles
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
@@ -105,57 +106,98 @@ def _results_dataframe(
     return pd.DataFrame(rows, columns=columns)
 
 
-def _summary_line(results: list[DocumentResult]) -> str:
-    counts = Counter(result.overall_status for result in results)
-    return (
-        f"**Total:** {len(results)} · "
-        f"**OK:** {counts.get(DocumentStatus.OK, 0)} · "
-        f"**PARTIAL:** {counts.get(DocumentStatus.PARTIAL, 0)} · "
-        f"**FAILED:** {counts.get(DocumentStatus.FAILED, 0)}"
+def _status_counts(results: list[DocumentResult]) -> Counter:
+    return Counter(result.overall_status for result in results)
+
+
+def _render_sidebar(
+    *,
+    provider_label: str,
+    ocr_status: str,
+    ocr_enabled: bool,
+    batch_concurrency: int,
+    field_count: int,
+) -> None:
+    st.sidebar.title("Settings")
+    st.sidebar.caption("System status for this session")
+
+    st.sidebar.markdown("**Vision provider**")
+    st.sidebar.info(provider_label)
+
+    st.sidebar.markdown("**OCR**")
+    if ocr_enabled:
+        st.sidebar.success(ocr_status)
+    else:
+        st.sidebar.warning(ocr_status)
+
+    col_a, col_b = st.sidebar.columns(2)
+    col_a.metric("Concurrency", batch_concurrency)
+    col_b.metric("Fields", field_count)
+
+    st.sidebar.divider()
+    st.sidebar.info(
+        "After processing, review any flagged rows in the Excel file. "
+        "Yellow means verify manually; red means the value failed validation."
     )
+
+
+def _render_summary_metrics(results: list[DocumentResult]) -> None:
+    counts = _status_counts(results)
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Total invoices", len(results))
+    c2.metric("OK", counts.get(DocumentStatus.OK, 0))
+    c3.metric("Needs review", counts.get(DocumentStatus.PARTIAL, 0))
+    c4.metric("Failed", counts.get(DocumentStatus.FAILED, 0))
 
 
 def main() -> None:
-    st.set_page_config(page_title="GST Invoice Field Extractor", layout="wide")
-    st.title("GST Invoice Field Extractor")
-    st.caption(
-        "Extract structured, validated fields from Indian GST tax invoices "
-        "(PDF or scanned images) and download Excel + CSV results."
+    st.set_page_config(
+        page_title="GST Invoice Field Extractor",
+        page_icon="📄",
+        layout="wide",
     )
+    inject_styles()
 
     field_configs = load_field_configs()
     ocr_status = log_ocr_startup_status()
 
-    st.sidebar.markdown("### Provider")
-    st.sidebar.info(_provider_label())
-    if is_tesseract_available():
-        st.sidebar.success(ocr_status)
-    else:
-        st.sidebar.warning(ocr_status)
-    st.sidebar.markdown(
-        f"**Batch concurrency:** {_batch_concurrency()} "
-        f"(set `BATCH_CONCURRENCY` in `.env`)"
-    )
-    st.sidebar.markdown(f"**Configured fields:** {len(field_configs)}")
-    st.sidebar.warning(
-        "Review flagged cells before trusting the data. In Excel, yellow means "
-        "low confidence and red means failed validation — always verify those values."
+    _render_sidebar(
+        provider_label=_provider_label(),
+        ocr_status=ocr_status,
+        ocr_enabled=is_tesseract_available(),
+        batch_concurrency=_batch_concurrency(),
+        field_count=len(field_configs),
     )
 
+    st.title("GST Invoice Field Extractor")
+    st.caption(
+        "Upload your GST invoices and download a validated spreadsheet — "
+        "no manual data entry required."
+    )
+
+    with st.expander("How it works", expanded=False):
+        st.markdown(
+            "1. **Upload** your invoice files (PDF or images)\n"
+            "2. **Click Start processing** and wait for extraction to finish\n"
+            "3. **Download** the Excel or CSV file and review any flagged cells"
+        )
+
+    st.subheader("Upload invoices")
     uploaded = st.file_uploader(
-        "Drag and drop invoice files here",
+        "Choose files or drag them here",
         type=["pdf", "jpg", "jpeg", "png"],
         accept_multiple_files=True,
+        help="Supported formats: PDF, JPG, PNG. Up to 100 files per batch.",
     )
 
     if uploaded:
-        st.markdown(f"**Uploaded:** {len(uploaded)} file(s)")
+        st.caption(f"{len(uploaded)} file(s) selected")
         if len(uploaded) > MAX_UPLOAD_COUNT:
             st.error(f"Maximum {MAX_UPLOAD_COUNT} files per run.")
             return
 
     process_clicked = st.button(
-        "Process",
+        "Start processing",
         type="primary",
         disabled=not uploaded,
     )
@@ -167,9 +209,9 @@ def main() -> None:
         def on_progress(completed: int, total: int, filename: str) -> None:
             progress_bar.progress(
                 completed / total,
-                text=f"Processing {completed}/{total}: {filename}",
+                text=f"Processing {completed} of {total}: {filename}",
             )
-            status_text.caption(f"Finished `{filename}`")
+            status_text.caption(f"Finished {filename}")
 
         _, document_paths = _save_uploads(uploaded)
         provider = _build_provider()
@@ -187,8 +229,9 @@ def main() -> None:
             st.error(f"Provider error: {exc}")
             return
 
-        progress_bar.progress(1.0, text="Batch complete")
+        progress_bar.progress(1.0, text="Done")
         status_text.empty()
+        st.success("Processing complete. Review results below and download your file.")
 
         st.session_state["excel_path"] = excel_path
         st.session_state["csv_path"] = csv_path
@@ -199,12 +242,19 @@ def main() -> None:
         results: list[DocumentResult] = st.session_state["results"]
         configs = st.session_state.get("field_configs", field_configs)
 
-        st.markdown(_summary_line(results))
-        st.dataframe(_results_dataframe(results, configs), use_container_width=True)
+        st.divider()
+        st.subheader("Results")
+        _render_summary_metrics(results)
+        st.dataframe(
+            _results_dataframe(results, configs),
+            use_container_width=True,
+            hide_index=True,
+        )
 
         excel_path = Path(st.session_state["excel_path"])
         csv_path = Path(st.session_state["csv_path"])
 
+        st.subheader("Download")
         col_excel, col_csv = st.columns(2)
         with col_excel:
             st.download_button(
@@ -212,6 +262,7 @@ def main() -> None:
                 data=excel_path.read_bytes(),
                 file_name=excel_path.name,
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
             )
         with col_csv:
             st.download_button(
@@ -219,6 +270,7 @@ def main() -> None:
                 data=csv_path.read_bytes(),
                 file_name=csv_path.name,
                 mime="text/csv",
+                use_container_width=True,
             )
 
 
