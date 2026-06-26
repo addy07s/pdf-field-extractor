@@ -22,3 +22,5 @@ smoke_output.*
 /*.csv
 /*.xlsx
 tests/fixtures/samples/
+frontend/node_modules/
+frontend/dist/
