@@ -23,9 +23,22 @@ fields:
       - date
       - grounding
 
-  - key: gstin
-    display_label: GSTIN
-    description: the supplier's 15-character GST identification number
+  - key: supplier_gstin
+    display_label: Supplier GSTIN
+    description: >-
+      The supplier's 15-character GSTIN. The first two digits are the supplier's
+      state code (e.g. 27=Maharashtra, 29=Karnataka, 24=Gujarat).
+    data_type: string
+    validators:
+      - gstin
+      - grounding
+
+  - key: recipient_gstin
+    display_label: Recipient GSTIN
+    description: >-
+      The recipient/buyer's 15-character GSTIN when printed on the invoice.
+      The first two digits are the recipient's state code. Return null only if
+      no recipient GSTIN appears on the document.
     data_type: string
     validators:
       - gstin
@@ -46,31 +59,53 @@ fields:
     validators:
       - grounding
 
-  - key: taxable_amount
-    display_label: Taxable Amount
+  - key: total_taxable_value
+    display_label: Total Taxable Value
     description: >-
-      The taxable value / base amount of goods or services BEFORE any GST
-      tax is added (e.g. the line-item amount or sub-total before tax). Not the final total.
+      The invoice grand taxable value / base amount BEFORE any GST tax is added
+      (sub-total before tax). Do NOT extract per-line taxable amounts — only the
+      invoice-level total taxable value.
     data_type: number
     validators:
       - grounding
       - number
 
-  - key: gst_amount
-    display_label: GST Amount
+  - key: cgst_amount
+    display_label: CGST Amount
     description: >-
-      The TOTAL GST tax amount on this invoice. If the invoice shows a single IGST line
-      (used for inter-state sales), use that value. If it shows separate CGST and SGST lines
-      (used for same-state sales), ADD them together to get the total GST. Do NOT include the
-      taxable base amount or the final total — only the tax itself.
+      The TOTAL CGST tax amount for the entire invoice (grand total only — not
+      per line item, and not the tax rate %). If CGST is not shown on the invoice,
+      return 0.0 (never null). Do NOT combine with SGST or IGST.
     data_type: number
     validators:
       - number
-      - grounding
 
-  - key: total_amount
-    display_label: Total Amount
-    description: invoice grand total payable in INR including taxes
+  - key: sgst_amount
+    display_label: SGST Amount
+    description: >-
+      The TOTAL SGST tax amount for the entire invoice (grand total only — not
+      per line item, and not the tax rate %). If SGST is not shown on the invoice,
+      return 0.0 (never null). Do NOT combine with CGST or IGST.
+    data_type: number
+    validators:
+      - number
+
+  - key: igst_amount
+    display_label: IGST Amount
+    description: >-
+      The TOTAL IGST tax amount for the entire invoice (grand total only — not
+      per line item, and not the tax rate %). If IGST is not shown on the invoice,
+      return 0.0 (never null). Intra-state invoices use CGST+SGST (IGST must be 0.0);
+      inter-state invoices use IGST (CGST and SGST must be 0.0).
+    data_type: number
+    validators:
+      - number
+
+  - key: total_invoice_value
+    display_label: Total Invoice Value
+    description: >-
+      Invoice grand total payable in INR including all taxes. Must equal
+      total_taxable_value + cgst_amount + sgst_amount + igst_amount.
     data_type: number
     validators:
       - number

@@ -16,6 +16,7 @@ from validate.checks import (
     check_grounding,
     check_number,
     check_pan,
+    check_tax_bucket_exclusivity,
     parse_indian_number,
     validate_gstin_checksum,
 )
@@ -120,20 +121,50 @@ def test_check_number_invalid_fails() -> None:
 def test_amounts_reconcile_smoke_values() -> None:
     assert amounts_reconcile(
         parse_indian_number(SMOKE_TAXABLE),
+        Decimal("0"),
+        Decimal("0"),
         parse_indian_number(SMOKE_GST),
         parse_indian_number(SMOKE_TOTAL),
     )
 
 
 def test_arithmetic_reconciliation_smoke_values_ok() -> None:
-    result = check_arithmetic_reconciliation(SMOKE_TAXABLE, SMOKE_GST, SMOKE_TOTAL)
+    result = check_arithmetic_reconciliation(
+        SMOKE_TAXABLE,
+        "0.0",
+        "0.0",
+        SMOKE_GST,
+        SMOKE_TOTAL,
+    )
     assert result.status == FieldStatus.OK
 
 
 def test_arithmetic_reconciliation_mismatch_low_confidence() -> None:
-    result = check_arithmetic_reconciliation("1000.00", "100.00", "5000.00")
+    result = check_arithmetic_reconciliation(
+        "1000.00",
+        "0.0",
+        "0.0",
+        "100.00",
+        "5000.00",
+    )
     assert result.status == FieldStatus.LOW_CONFIDENCE
     assert "do not reconcile" in (result.reason or "")
+
+
+def test_tax_bucket_exclusivity_allows_igst_only() -> None:
+    result = check_tax_bucket_exclusivity("0.0", "0.0", "788.40")
+    assert result.status == FieldStatus.OK
+
+
+def test_tax_bucket_exclusivity_allows_cgst_sgst_only() -> None:
+    result = check_tax_bucket_exclusivity("394.20", "394.20", "0.0")
+    assert result.status == FieldStatus.OK
+
+
+def test_tax_bucket_exclusivity_rejects_mixed_buckets() -> None:
+    result = check_tax_bucket_exclusivity("394.20", "394.20", "100.00")
+    assert result.status == FieldStatus.FAILED_VALIDATION
+    assert "invalid tax mix" in (result.reason or "")
 
 
 def test_grounding_found_in_text_layer() -> None:

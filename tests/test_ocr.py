@@ -110,13 +110,13 @@ def test_misread_gstin_corrected_from_ocr_text_layer() -> None:
         is_scanned=True,
         text_layer_is_ocr=True,
     )
-    raw_fields = {"gstin": MISREAD_GSTIN}
+    raw_fields = {"supplier_gstin": MISREAD_GSTIN}
 
     corrected = apply_text_layer_corrections(raw_fields, document)
 
-    assert corrected["gstin"] == CORRECT_GSTIN
-    assert validate_gstin_checksum(corrected["gstin"])
-    assert check_gstin(corrected["gstin"]).status.value == "OK"
+    assert corrected["supplier_gstin"] == CORRECT_GSTIN
+    assert validate_gstin_checksum(corrected["supplier_gstin"])
+    assert check_gstin(corrected["supplier_gstin"]).status.value == "OK"
 
 
 def test_preprocess_image_noop_on_failure_returns_original_bytes() -> None:

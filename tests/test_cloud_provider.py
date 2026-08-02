@@ -109,6 +109,43 @@ def test_empty_string_maps_to_none(sample_field_configs: list[FieldConfig]) -> N
     assert parsed["total_amount"] == "500"
 
 
+def test_missing_tax_buckets_normalize_to_zero() -> None:
+    configs = [
+        FieldConfig(
+            key="cgst_amount",
+            display_label="CGST Amount",
+            description="total CGST",
+            data_type="number",
+            validators=["number"],
+        ),
+        FieldConfig(
+            key="sgst_amount",
+            display_label="SGST Amount",
+            description="total SGST",
+            data_type="number",
+            validators=["number"],
+        ),
+        FieldConfig(
+            key="igst_amount",
+            display_label="IGST Amount",
+            description="total IGST",
+            data_type="number",
+            validators=["number"],
+        ),
+    ]
+
+    parsed = normalize_raw_values(
+        {"cgst_amount": None, "sgst_amount": "  ", "igst_amount": "118.00"},
+        configs,
+    )
+
+    assert parsed == {
+        "cgst_amount": "0.0",
+        "sgst_amount": "0.0",
+        "igst_amount": "118.00",
+    }
+
+
 def _make_mock_client(response_text: str) -> MagicMock:
     response = MagicMock()
     response.text = response_text

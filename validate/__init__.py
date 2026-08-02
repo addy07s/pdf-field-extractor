@@ -7,13 +7,18 @@ from validate.checks import (
     check_gstin,
     check_gstin_pan_crosscheck,
     check_grounding,
+    check_tax_bucket_exclusivity,
     is_value_grounded_fuzzy,
     check_number,
     check_pan,
     parse_indian_number,
     validate_gstin_checksum,
 )
-from validate.validator import validate_document, validate_fields
+from validate.validator import (
+    default_missing_tax_amounts,
+    validate_document,
+    validate_fields,
+)
 
 __all__ = [
     "amounts_reconcile",
@@ -22,6 +27,8 @@ __all__ = [
     "check_gstin",
     "check_gstin_pan_crosscheck",
     "check_grounding",
+    "check_tax_bucket_exclusivity",
+    "default_missing_tax_amounts",
     "is_value_grounded_fuzzy",
     "check_number",
     "check_pan",

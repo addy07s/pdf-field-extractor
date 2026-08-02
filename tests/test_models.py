@@ -11,8 +11,8 @@ def test_field_result_defaults() -> None:
 def test_document_result_structure() -> None:
     doc = DocumentResult(
         source_filename="invoice.pdf",
-        fields={"gstin": FieldResult(status=FieldStatus.NOT_FOUND)},
+        fields={"supplier_gstin": FieldResult(status=FieldStatus.NOT_FOUND)},
         overall_status=DocumentStatus.PARTIAL,
     )
     assert doc.source_filename == "invoice.pdf"
-    assert doc.fields["gstin"].status == FieldStatus.NOT_FOUND
+    assert doc.fields["supplier_gstin"].status == FieldStatus.NOT_FOUND

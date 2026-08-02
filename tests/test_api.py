@@ -68,7 +68,7 @@ def test_extract_returns_document_results(
             DocumentResult(
                 source_filename="invoice.pdf",
                 fields={
-                    "gstin": FieldResult(
+                    "supplier_gstin": FieldResult(
                         value="22AAAAA0000A1Z5",
                         status=FieldStatus.OK,
                     )
@@ -89,8 +89,8 @@ def test_extract_returns_document_results(
     assert len(body["results"]) == 1
     assert body["results"][0]["source_filename"] == "invoice.pdf"
     assert body["results"][0]["overall_status"] == "OK"
-    assert body["results"][0]["fields"]["gstin"]["status"] == "OK"
-    assert body["results"][0]["fields"]["gstin"]["value"] == "22AAAAA0000A1Z5"
+    assert body["results"][0]["fields"]["supplier_gstin"]["status"] == "OK"
+    assert body["results"][0]["fields"]["supplier_gstin"]["value"] == "22AAAAA0000A1Z5"
 
     mock_run_batch.assert_called_once()
     call_kwargs = mock_run_batch.call_args.kwargs

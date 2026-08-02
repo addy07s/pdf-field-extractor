@@ -11,7 +11,9 @@ from validate.checks import is_text_layer_near_empty, validate_gstin_checksum
 
 logger = logging.getLogger(__name__)
 
-_GSTIN_KEY = "gstin"
+_SUPPLIER_GSTIN_KEY = "supplier_gstin"
+_RECIPIENT_GSTIN_KEY = "recipient_gstin"
+_GSTIN_KEYS = (_SUPPLIER_GSTIN_KEY, _RECIPIENT_GSTIN_KEY)
 _PAN_KEY = "pan"
 
 _GSTIN_SEARCH_PATTERN = re.compile(
@@ -60,12 +62,17 @@ def _choose_text_layer_value(
     field_key: str,
     ai_value: str | None,
     text_candidates: list[str],
+    *,
+    allow_single_candidate_replace: bool = True,
 ) -> str | None:
     """Apply GSTIN/PAN correction rules without fabricating values."""
     if not text_candidates or ai_value is None:
         return ai_value
 
-    if len(text_candidates) == 1:
+    if ai_value in text_candidates:
+        return ai_value
+
+    if allow_single_candidate_replace and len(text_candidates) == 1:
         text_value = text_candidates[0]
         if ai_value != text_value:
             logger.info(
@@ -75,9 +82,6 @@ def _choose_text_layer_value(
                 text_value,
             )
             return text_value
-        return ai_value
-
-    if ai_value in text_candidates:
         return ai_value
 
     return ai_value
@@ -91,20 +95,28 @@ def apply_text_layer_corrections(
 
     Does nothing when the document has no usable text layer (native or OCR).
     Never fabricates: only substitutes values regex-matched in the text layer.
+
+    With separate supplier/recipient GSTINs, a lone text-layer GSTIN may only
+    auto-correct ``supplier_gstin`` — never invent a recipient GSTIN.
     """
     if is_text_layer_near_empty(document.text_layer):
         return raw_fields
 
     corrected = dict(raw_fields)
     text_layer = document.text_layer
+    text_gstins = find_valid_gstins_in_text(text_layer)
 
-    if _GSTIN_KEY in corrected:
-        text_gstins = find_valid_gstins_in_text(text_layer)
-        ai_gstin = _normalize_field_value(corrected.get(_GSTIN_KEY))
-        corrected[_GSTIN_KEY] = _choose_text_layer_value(
-            _GSTIN_KEY,
+    for gstin_key in _GSTIN_KEYS:
+        if gstin_key not in corrected:
+            continue
+        ai_gstin = _normalize_field_value(corrected.get(gstin_key))
+        # Only supplier may be replaced from a single unmatched text GSTIN.
+        allow_replace = gstin_key == _SUPPLIER_GSTIN_KEY
+        corrected[gstin_key] = _choose_text_layer_value(
+            gstin_key,
             ai_gstin,
             text_gstins,
+            allow_single_candidate_replace=allow_replace,
         )
 
     if _PAN_KEY in corrected:

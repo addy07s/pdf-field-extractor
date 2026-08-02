@@ -21,12 +21,15 @@ SMOKE_RAW = {
     "company_name": "ADITYA MULTIMEDIA AND ENTERTAINMENT",
     "invoice_number": "AME/2",
     "invoice_date": "23/04/2026",
-    "gstin": "24ABMFA4190N1Z2",
+    "supplier_gstin": "24ABMFA4190N1Z2",
+    "recipient_gstin": None,
     "pan": "ABMFA4190N",
     "description": "ROYALTY INCOME",
-    "taxable_amount": "4380.00",
-    "gst_amount": "788.40",
-    "total_amount": "5,168.40",
+    "total_taxable_value": "4380.00",
+    "cgst_amount": "0.0",
+    "sgst_amount": "0.0",
+    "igst_amount": "788.40",
+    "total_invoice_value": "5,168.40",
 }
 
 
@@ -90,8 +93,8 @@ async def test_batch_provider_error_isolates_failed_document(
     assert results[1].overall_status == DocumentStatus.FAILED
     assert "simulated failure" in (results[1].error_message or "")
     assert results[2].overall_status != DocumentStatus.FAILED
-    assert results[0].fields["gstin"].status == FieldStatus.OK
-    assert results[2].fields["gstin"].status == FieldStatus.OK
+    assert results[0].fields["supplier_gstin"].status == FieldStatus.OK
+    assert results[2].fields["supplier_gstin"].status == FieldStatus.OK
     assert provider.extract.await_count == 3
 
 

@@ -278,35 +278,70 @@ def check_number(value: Any) -> CheckResult:
 
 def amounts_reconcile(
     taxable: Decimal | float,
-    gst: Decimal | float,
+    cgst: Decimal | float,
+    sgst: Decimal | float,
+    igst: Decimal | float,
     total: Decimal | float,
     *,
     tolerance: Decimal = _ARITHMETIC_TOLERANCE,
 ) -> bool:
     taxable_dec = Decimal(str(taxable))
-    gst_dec = Decimal(str(gst))
+    cgst_dec = Decimal(str(cgst))
+    sgst_dec = Decimal(str(sgst))
+    igst_dec = Decimal(str(igst))
     total_dec = Decimal(str(total))
-    return abs((taxable_dec + gst_dec) - total_dec) <= tolerance
+    return abs((taxable_dec + cgst_dec + sgst_dec + igst_dec) - total_dec) <= tolerance
+
+
+def check_tax_bucket_exclusivity(
+    cgst_value: Any,
+    sgst_value: Any,
+    igst_value: Any,
+) -> CheckResult:
+    """CGST/SGST and IGST are mutually exclusive under Indian GST rules."""
+    try:
+        cgst = parse_indian_number(cgst_value)
+        sgst = parse_indian_number(sgst_value)
+        igst = parse_indian_number(igst_value)
+    except (InvalidOperation, ValueError):
+        return CheckResult(status=FieldStatus.OK, value=None)
+
+    intra_state = cgst > 0 or sgst > 0
+    inter_state = igst > 0
+    if intra_state and inter_state:
+        return CheckResult(
+            status=FieldStatus.FAILED_VALIDATION,
+            reason="invalid tax mix: CGST/SGST and IGST cannot both be non-zero",
+            value=None,
+        )
+    return CheckResult(status=FieldStatus.OK, value=None)
 
 
 def check_arithmetic_reconciliation(
     taxable_value: Any,
-    gst_value: Any,
+    cgst_value: Any,
+    sgst_value: Any,
+    igst_value: Any,
     total_value: Any,
 ) -> CheckResult:
     try:
         taxable = parse_indian_number(taxable_value)
-        gst = parse_indian_number(gst_value)
+        cgst = parse_indian_number(cgst_value)
+        sgst = parse_indian_number(sgst_value)
+        igst = parse_indian_number(igst_value)
         total = parse_indian_number(total_value)
     except (InvalidOperation, ValueError):
         return CheckResult(status=FieldStatus.OK, value=None)
 
-    if amounts_reconcile(taxable, gst, total):
+    if amounts_reconcile(taxable, cgst, sgst, igst, total):
         return CheckResult(status=FieldStatus.OK, value=None)
 
     return CheckResult(
         status=FieldStatus.LOW_CONFIDENCE,
-        reason="amounts do not reconcile: taxable + GST ≠ total",
+        reason=(
+            "amounts do not reconcile: "
+            "total_taxable_value + cgst + sgst + igst ≠ total_invoice_value"
+        ),
         value=None,
     )
 

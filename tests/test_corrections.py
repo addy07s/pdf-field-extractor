@@ -44,36 +44,40 @@ def _scanned_document() -> PdfDocument:
     )
 
 
-def test_misread_gstin_is_corrected_from_text_layer() -> None:
+def test_misread_supplier_gstin_is_corrected_from_text_layer() -> None:
     text_layer = f"Supplier GSTIN No.: {CORRECT_GSTIN}"
-    raw_fields = {"gstin": MISREAD_GSTIN, "pan": CORRECT_PAN}
+    raw_fields = {"supplier_gstin": MISREAD_GSTIN, "pan": CORRECT_PAN}
     document = _digital_document(text_layer)
 
     corrected = apply_text_layer_corrections(raw_fields, document)
 
-    assert corrected["gstin"] == CORRECT_GSTIN
-    assert validate_gstin_checksum(corrected["gstin"])
-    assert check_gstin(corrected["gstin"]).status.value == "OK"
+    assert corrected["supplier_gstin"] == CORRECT_GSTIN
+    assert validate_gstin_checksum(corrected["supplier_gstin"])
+    assert check_gstin(corrected["supplier_gstin"]).status.value == "OK"
 
 
-def test_correct_gstin_left_unchanged() -> None:
+def test_correct_supplier_gstin_left_unchanged() -> None:
     text_layer = f"GSTIN {CORRECT_GSTIN}"
-    raw_fields = {"gstin": CORRECT_GSTIN}
+    raw_fields = {"supplier_gstin": CORRECT_GSTIN}
 
     corrected = apply_text_layer_corrections(
         raw_fields,
         _digital_document(text_layer),
     )
 
-    assert corrected["gstin"] == CORRECT_GSTIN
+    assert corrected["supplier_gstin"] == CORRECT_GSTIN
 
 
 def test_scanned_document_leaves_ai_gstin_untouched() -> None:
-    raw_fields = {"gstin": MISREAD_GSTIN, "pan": CORRECT_PAN}
+    raw_fields = {
+        "supplier_gstin": MISREAD_GSTIN,
+        "recipient_gstin": None,
+        "pan": CORRECT_PAN,
+    }
 
     corrected = apply_text_layer_corrections(raw_fields, _scanned_document())
 
-    assert corrected["gstin"] == MISREAD_GSTIN
+    assert corrected["supplier_gstin"] == MISREAD_GSTIN
     assert corrected["pan"] == CORRECT_PAN
 
 
@@ -81,14 +85,15 @@ def test_multiple_text_gstins_keeps_ai_when_it_matches_one() -> None:
     supplier = CORRECT_GSTIN
     recipient = "24ABMFA4190N1Z2"
     text_layer = f"Supplier GSTIN: {supplier}\nRecipient GSTIN: {recipient}"
-    raw_fields = {"gstin": supplier}
+    raw_fields = {"supplier_gstin": supplier, "recipient_gstin": recipient}
 
     corrected = apply_text_layer_corrections(
         raw_fields,
         _digital_document(text_layer),
     )
 
-    assert corrected["gstin"] == supplier
+    assert corrected["supplier_gstin"] == supplier
+    assert corrected["recipient_gstin"] == recipient
 
 
 def test_multiple_text_gstins_leaves_ai_when_it_matches_neither() -> None:
@@ -96,19 +101,51 @@ def test_multiple_text_gstins_leaves_ai_when_it_matches_neither() -> None:
     recipient = "24ABMFA4190N1Z2"
     text_layer = f"Supplier GSTIN: {supplier}\nRecipient GSTIN: {recipient}"
     wrong_ai = MISREAD_GSTIN
-    raw_fields = {"gstin": wrong_ai}
+    raw_fields = {"supplier_gstin": wrong_ai}
 
     corrected = apply_text_layer_corrections(
         raw_fields,
         _digital_document(text_layer),
     )
 
-    assert corrected["gstin"] == wrong_ai
+    assert corrected["supplier_gstin"] == wrong_ai
+
+
+def test_single_text_gstin_does_not_fabricate_recipient() -> None:
+    text_layer = f"Supplier GSTIN No.: {CORRECT_GSTIN}"
+    raw_fields = {
+        "supplier_gstin": MISREAD_GSTIN,
+        "recipient_gstin": None,
+    }
+
+    corrected = apply_text_layer_corrections(
+        raw_fields,
+        _digital_document(text_layer),
+    )
+
+    assert corrected["supplier_gstin"] == CORRECT_GSTIN
+    assert corrected["recipient_gstin"] is None
+
+
+def test_recipient_misread_not_replaced_by_unrelated_single_gstin() -> None:
+    """A lone text GSTIN may correct supplier only — not recipient."""
+    text_layer = f"Supplier GSTIN: {CORRECT_GSTIN}"
+    raw_fields = {
+        "supplier_gstin": CORRECT_GSTIN,
+        "recipient_gstin": MISREAD_GSTIN,
+    }
+
+    corrected = apply_text_layer_corrections(
+        raw_fields,
+        _digital_document(text_layer),
+    )
+
+    assert corrected["recipient_gstin"] == MISREAD_GSTIN
 
 
 def test_pan_corrected_from_text_layer_when_single_match() -> None:
     text_layer = f"PAN {CORRECT_PAN} GSTIN {CORRECT_GSTIN}"
-    raw_fields = {"pan": "ABSPT7889X", "gstin": CORRECT_GSTIN}
+    raw_fields = {"pan": "ABSPT7889X", "supplier_gstin": CORRECT_GSTIN}
 
     corrected = apply_text_layer_corrections(
         raw_fields,

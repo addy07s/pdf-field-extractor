@@ -23,8 +23,15 @@ _SYSTEM_INSTRUCTION = (
     "You are extracting fields from an Indian GST tax invoice. "
     "For each requested field, return the exact value as it appears in the document, "
     "or null if it is not present or you cannot read it confidently. "
-    "Do NOT guess or fabricate values. Return only the structured object."
+    "Exception for tax buckets: cgst_amount, sgst_amount, and igst_amount must always "
+    "be numeric invoice grand totals — use 0.0 when that tax is not shown (never null). "
+    "Never merge CGST/SGST/IGST into one field. Never extract per-line tax rates. "
+    "Intra-state invoices use CGST+SGST with igst_amount=0.0; inter-state invoices use "
+    "IGST with cgst_amount=0.0 and sgst_amount=0.0. "
+    "Do NOT guess or fabricate other values. Return only the structured object."
 )
+
+_TAX_AMOUNT_KEYS = frozenset({"cgst_amount", "sgst_amount", "igst_amount"})
 
 _MAX_RETRIES = 6
 _BASE_BACKOFF_SEC = 1.0
@@ -82,14 +89,19 @@ def normalize_raw_values(
     parsed: dict[str, Any],
     field_configs: list[FieldConfig],
 ) -> dict[str, Any]:
-    """Map model output to raw values; missing/blank strings become None."""
+    """Map model output to raw values; missing/blank strings become None.
+
+    Tax bucket fields (CGST/SGST/IGST) default to ``\"0.0\"`` when missing —
+    Indian GST extraction never returns null for those amounts.
+    """
     normalized: dict[str, Any] = {}
     for field in field_configs:
         value = parsed.get(field.key)
-        if value is None:
-            normalized[field.key] = None
-        elif isinstance(value, str) and not value.strip():
-            normalized[field.key] = None
+        if value is None or (isinstance(value, str) and not value.strip()):
+            if field.key in _TAX_AMOUNT_KEYS:
+                normalized[field.key] = "0.0"
+            else:
+                normalized[field.key] = None
         else:
             normalized[field.key] = value
     return normalized

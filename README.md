@@ -256,7 +256,7 @@ Field definitions live in [`config/fields.yaml`](config/fields.yaml). This file 
 - Which validators run
 - Excel/CSV column headers
 
-**Default fields:** company name, invoice number, invoice date, GSTIN, PAN, description, taxable amount, GST amount, total amount.
+**Default fields:** company name, invoice number, invoice date, supplier GSTIN, recipient GSTIN, PAN, description, total taxable value, CGST amount, SGST amount, IGST amount, total invoice value.
 
 To add, remove, or edit a field, change the YAML only—no Python changes required:
 
@@ -282,13 +282,14 @@ After extraction, each field passes deterministic validators configured in `fiel
 | Check | What it does |
 | ----- | ------------ |
 | **Grounding** | Value must appear in the document text layer (exact for digital PDFs; fuzzy for OCR). Missing → yellow. |
-| **GSTIN checksum** | Validates 15-character structure and official checksum digit. Fail → red. |
+| **GSTIN checksum** | Validates 15-character structure and official checksum digit (supplier and recipient). Fail → red. |
 | **PAN structure** | Validates `[A-Z]{5}[0-9]{4}[A-Z]`. Fail → red. |
-| **GSTIN ↔ PAN cross-check** | Characters 3–12 of GSTIN must match PAN when both are present. Fail → red on both. |
+| **GSTIN ↔ PAN cross-check** | Characters 3–12 of supplier GSTIN must match PAN when both are present. Fail → red on both. |
 | **Date** | Parses common Indian formats; stores normalized ISO date. Fail → red. |
-| **Arithmetic** | When taxable + GST ≈ total (within ₹1), amounts stay OK; mismatch → yellow on all three. |
+| **Tax bucket exclusivity** | CGST/SGST and IGST are mutually exclusive — if either CGST or SGST is non-zero, IGST must be 0 (and vice versa). Fail → red on tax fields. |
+| **Arithmetic** | When taxable + CGST + SGST + IGST ≈ invoice total (within ₹1), amounts stay OK; mismatch → yellow on all amount fields. Missing tax buckets default to `0.0` (never null). |
 
-Digital PDFs also use **text-layer correction** for GSTIN/PAN: if exactly one valid value exists in the document text, it replaces a misread AI value.
+Digital PDFs also use **text-layer correction** for GSTIN/PAN: if exactly one valid supplier GSTIN exists in the document text, it replaces a misread AI value. Recipient GSTIN is never invented from a lone text match.
 
 **How to read the output**
 
@@ -345,11 +346,11 @@ npm run build
 
 ---
 
-## Docker deployment
+## Docker deployment (production v2)
 
-> **Note:** The current `Dockerfile` still targets the legacy Streamlit entrypoint. A production v2 image (FastAPI + static React build) will be added in a follow-up deployment step.
+The multi-stage `Dockerfile` builds the React UI and runs FastAPI + Uvicorn on port **8501** (same port as the legacy ECS service).
 
-For local Docker testing of the legacy container:
+**Build and run locally**
 
 ```bash
 docker build -t pdf-field-extractor .
@@ -361,4 +362,21 @@ docker run --rm -p 8501:8501 \
   pdf-field-extractor
 ```
 
-Never bake secrets into the image — pass `GEMINI_API_KEY` at runtime.
+Open `http://localhost:8501` — the React app and API are served from the same origin.
+
+**Deploy to AWS ECS (us-east-1)**
+
+```powershell
+.\scripts\deploy-ecs.ps1
+```
+
+This script builds the image, pushes to ECR (`712789090051.dkr.ecr.us-east-1.amazonaws.com/pdf-field-extractor`), and forces a rolling deployment on cluster `pdf-extractor-cluster-2`.
+
+| Resource | Name |
+| -------- | ---- |
+| ECR repository | `pdf-field-extractor` |
+| ECS cluster | `pdf-extractor-cluster-2` |
+| ECS service | `pdf-extractor-task-service-unsxhlzw` |
+| Container port | `8501` |
+
+Never bake secrets into the image — configure `GEMINI_API_KEY` in the ECS task definition (prefer AWS Secrets Manager over plaintext environment variables).
