@@ -99,7 +99,7 @@ def sample_results() -> list[DocumentResult]:
 
 def _expected_headers(field_configs) -> list[str]:
     return (
-        ["Source File"]
+        ["Source File", "Invoice #"]
         + [field.display_label for field in field_configs]
         + ["Overall Status"]
     )
@@ -115,6 +115,7 @@ def test_excel_headers_and_clean_row_values(tmp_path: Path, field_configs, sampl
 
     clean_row = [cell.value for cell in worksheet[2]]
     assert clean_row[0] == "SalesBill_AME_2 1.PDF"
+    assert clean_row[headers.index("Invoice #")] == 1
     assert clean_row[headers.index("Invoice Date")] == "2026-04-23"
     assert clean_row[headers.index("Total Taxable Value")] == 4380.0
     assert clean_row[headers.index("IGST Amount")] == 788.4
@@ -163,6 +164,7 @@ def test_csv_columns_and_flags_column(tmp_path: Path, field_configs, sample_resu
 
     clean_row = frame.iloc[0]
     assert clean_row["Source File"] == "SalesBill_AME_2 1.PDF"
+    assert clean_row["Invoice #"] == 1
     assert clean_row["Invoice Date"] == "2026-04-23"
     assert clean_row["Overall Status"] == "PARTIAL"
     assert "recipient_gstin: NOT_FOUND" in clean_row["Flags"]
@@ -179,3 +181,31 @@ def test_csv_columns_and_flags_column(tmp_path: Path, field_configs, sample_resu
     assert failed_row["Company Name"] == ""
     assert "document: FAILED" in failed_row["Flags"]
     assert "not a real pdf" in failed_row["Flags"]
+
+
+def test_csv_multi_invoice_same_source_file(tmp_path: Path, field_configs) -> None:
+    results = [
+        DocumentResult(
+            source_filename="pack.pdf",
+            invoice_index=1,
+            fields=dict(SMOKE_FIELDS),
+            overall_status=DocumentStatus.PARTIAL,
+        ),
+        DocumentResult(
+            source_filename="pack.pdf",
+            invoice_index=2,
+            fields={
+                **SMOKE_FIELDS,
+                "invoice_number": FieldResult(value="AME/3", status=FieldStatus.OK),
+            },
+            overall_status=DocumentStatus.PARTIAL,
+        ),
+    ]
+
+    out = write_csv(results, field_configs, tmp_path / "multi.csv")
+    frame = pd.read_csv(out, keep_default_na=False)
+
+    assert len(frame) == 2
+    assert list(frame["Source File"]) == ["pack.pdf", "pack.pdf"]
+    assert list(frame["Invoice #"]) == [1, 2]
+    assert frame.iloc[1]["Invoice Number"] == "AME/3"

@@ -32,7 +32,7 @@ _STATUS_FILLS = {
 
 def _header_row(field_configs: list[FieldConfig]) -> list[str]:
     return (
-        ["Source File"]
+        ["Source File", "Invoice #"]
         + [field.display_label for field in field_configs]
         + ["Overall Status"]
     )
@@ -43,6 +43,8 @@ def _column_widths(headers: list[str]) -> list[int]:
     for header in headers:
         if header == "Source File":
             widths.append(28)
+        elif header == "Invoice #":
+            widths.append(12)
         elif header == "Overall Status":
             widths.append(24)
         else:
@@ -77,7 +79,7 @@ def write_excel(
     field_configs: list[FieldConfig],
     output_path: Path | str,
 ) -> Path:
-    """Write one row per document to a styled .xlsx file."""
+    """Write one row per extracted invoice to a styled .xlsx file."""
     out_path = Path(output_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -95,8 +97,10 @@ def write_excel(
     for cell in worksheet[1]:
         cell.font = _HEADER_FONT
 
+    field_start_column = 3  # Source File, Invoice #
+
     for document in results:
-        row: list[object] = [document.source_filename]
+        row: list[object] = [document.source_filename, document.invoice_index]
         document_failed = is_document_failed(document)
 
         for field_config in field_configs:
@@ -109,7 +113,7 @@ def write_excel(
         worksheet.append(row)
 
         row_index = worksheet.max_row
-        for field_offset, field_config in enumerate(field_configs, start=2):
+        for field_offset, field_config in enumerate(field_configs, start=field_start_column):
             field_result = document.fields.get(field_config.key)
             if field_result is None:
                 field_result = FieldResult(status=FieldStatus.NOT_FOUND)

@@ -44,6 +44,7 @@ export function ReviewGrid({
                 Actions
               </th>
               <th className="min-w-[12rem] border-b border-slate-200 px-3 py-3">Source file</th>
+              <th className="min-w-[5.5rem] border-b border-slate-200 px-3 py-3">Invoice #</th>
               <th className="min-w-[7rem] border-b border-slate-200 px-3 py-3">Status</th>
               {fields.map((field) => (
                 <th
@@ -59,9 +60,10 @@ export function ReviewGrid({
           <tbody>
             {results.map((document) => {
               const previewReady = canPreview(document.source_filename);
+              const rowKey = `${document.source_filename}#${document.invoice_index}`;
 
               return (
-                <tr key={document.source_filename} className="border-b border-slate-100 last:border-0">
+                <tr key={rowKey} className="border-b border-slate-100 last:border-0">
                   <td className="sticky left-0 z-10 bg-white px-3 py-2">
                     <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center">
                       <button
@@ -94,6 +96,8 @@ export function ReviewGrid({
                     {document.source_filename}
                   </td>
 
+                  <td className="px-3 py-2 text-sm text-slate-700">{document.invoice_index}</td>
+
                   <td className="px-3 py-2">
                     <span className={overallStatusClasses(document.overall_status)}>
                       {document.overall_status}
@@ -112,7 +116,7 @@ export function ReviewGrid({
 
                     return (
                       <td
-                        key={`${document.source_filename}-${field.key}`}
+                        key={`${rowKey}-${field.key}`}
                         className={fieldCellClasses(fieldResult?.status, document)}
                         title={title}
                       >

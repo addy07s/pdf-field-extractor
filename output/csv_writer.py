@@ -1,4 +1,4 @@
-"""CSV output via pandas — one row per document."""
+"""CSV output via pandas — one row per extracted invoice."""
 
 from __future__ import annotations
 
@@ -22,7 +22,10 @@ def _build_rows(
 ) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     for document in results:
-        row: dict[str, object] = {"Source File": document.source_filename}
+        row: dict[str, object] = {
+            "Source File": document.source_filename,
+            "Invoice #": document.invoice_index,
+        }
         document_failed = is_document_failed(document)
 
         for field_config in field_configs:
@@ -53,7 +56,7 @@ def write_csv(
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
     columns = (
-        ["Source File"]
+        ["Source File", "Invoice #"]
         + [field.display_label for field in field_configs]
         + ["Overall Status", "Flags"]
     )

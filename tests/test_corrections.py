@@ -143,6 +143,19 @@ def test_recipient_misread_not_replaced_by_unrelated_single_gstin() -> None:
     assert corrected["recipient_gstin"] == MISREAD_GSTIN
 
 
+def test_multi_invoice_disables_single_gstin_replace() -> None:
+    text_layer = f"Supplier GSTIN No.: {CORRECT_GSTIN}"
+    raw_fields = {"supplier_gstin": MISREAD_GSTIN}
+
+    corrected = apply_text_layer_corrections(
+        raw_fields,
+        _digital_document(text_layer),
+        allow_single_gstin_replace=False,
+    )
+
+    assert corrected["supplier_gstin"] == MISREAD_GSTIN
+
+
 def test_pan_corrected_from_text_layer_when_single_match() -> None:
     text_layer = f"PAN {CORRECT_PAN} GSTIN {CORRECT_GSTIN}"
     raw_fields = {"pan": "ABSPT7889X", "supplier_gstin": CORRECT_GSTIN}

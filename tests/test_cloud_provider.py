@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -44,19 +43,21 @@ def sample_field_configs() -> list[FieldConfig]:
     ]
 
 
-def test_build_response_schema_from_field_configs(
+def test_build_response_schema_wraps_invoices_array(
     sample_field_configs: list[FieldConfig],
 ) -> None:
     schema = build_response_schema(sample_field_configs)
 
     assert schema["type"] == "object"
-    assert schema["required"] == ["gstin", "total_amount"]
+    assert schema["required"] == ["invoices"]
     assert schema["additionalProperties"] is False
-    assert schema["properties"]["gstin"] == {
+    assert "invoices" in schema["properties"]
+    invoice_items = schema["properties"]["invoices"]["items"]
+    assert invoice_items["required"] == ["gstin", "total_amount"]
+    assert invoice_items["properties"]["gstin"] == {
         "type": ["string", "null"],
         "description": sample_field_configs[0].description,
     }
-    assert schema["properties"]["total_amount"]["type"] == ["string", "null"]
 
 
 def test_build_field_guidance_includes_all_fields(
@@ -64,6 +65,7 @@ def test_build_field_guidance_includes_all_fields(
 ) -> None:
     guidance = build_field_guidance(sample_field_configs)
 
+    assert "invoices" in guidance
     assert "gstin (GSTIN)" in guidance
     assert "15-character GST identification number" in guidance
     assert "total_amount (Total Amount)" in guidance
@@ -76,27 +78,50 @@ def test_build_generate_config_uses_structured_json_output(
 
     assert config.response_mime_type == "application/json"
     assert config.response_json_schema is not None
-    assert "gstin" in config.response_json_schema["properties"]
+    assert set(config.response_json_schema["properties"]) == {"invoices"}
 
 
-def test_build_contents_includes_image_part(
+def test_build_contents_includes_page_image_parts(
     sample_field_configs: list[FieldConfig],
 ) -> None:
-    contents = build_contents(PNG_BYTES, sample_field_configs)
+    contents = build_contents([PNG_BYTES, PNG_BYTES], sample_field_configs)
 
-    assert len(contents) == 2
     assert isinstance(contents[0], str)
-    assert isinstance(contents[1], types.Part)
+    assert contents[1] == "Page 1 of 2:"
+    assert isinstance(contents[2], types.Part)
+    assert contents[3] == "Page 2 of 2:"
+    assert isinstance(contents[4], types.Part)
 
 
-def test_null_response_maps_to_none(sample_field_configs: list[FieldConfig]) -> None:
+def test_invoices_array_response_parses_multiple(
+    sample_field_configs: list[FieldConfig],
+) -> None:
+    parsed = parse_structured_response(
+        json.dumps(
+            {
+                "invoices": [
+                    {"gstin": "29ABCDE1234F1Z5", "total_amount": "1180.00"},
+                    {"gstin": None, "total_amount": "500.00"},
+                ]
+            }
+        ),
+        sample_field_configs,
+    )
+
+    assert len(parsed) == 2
+    assert parsed[0] == {"gstin": "29ABCDE1234F1Z5", "total_amount": "1180.00"}
+    assert parsed[1] == {"gstin": None, "total_amount": "500.00"}
+
+
+def test_flat_legacy_response_wraps_as_single_invoice(
+    sample_field_configs: list[FieldConfig],
+) -> None:
     parsed = parse_structured_response(
         json.dumps({"gstin": None, "total_amount": "1180.00"}),
         sample_field_configs,
     )
 
-    assert parsed["gstin"] is None
-    assert parsed["total_amount"] == "1180.00"
+    assert parsed == [{"gstin": None, "total_amount": "1180.00"}]
 
 
 def test_empty_string_maps_to_none(sample_field_configs: list[FieldConfig]) -> None:
@@ -146,6 +171,11 @@ def test_missing_tax_buckets_normalize_to_zero() -> None:
     }
 
 
+def test_empty_invoices_array_raises(sample_field_configs: list[FieldConfig]) -> None:
+    with pytest.raises(ProviderError, match="empty `invoices` array"):
+        parse_structured_response(json.dumps({"invoices": []}), sample_field_configs)
+
+
 def _make_mock_client(response_text: str) -> MagicMock:
     response = MagicMock()
     response.text = response_text
@@ -168,7 +198,13 @@ async def test_extract_builds_request_from_field_configs_without_network(
     sample_field_configs: list[FieldConfig],
 ) -> None:
     mock_client = _make_mock_client(
-        json.dumps({"gstin": "29ABCDE1234F1Z5", "total_amount": "1180.00"})
+        json.dumps(
+            {
+                "invoices": [
+                    {"gstin": "29ABCDE1234F1Z5", "total_amount": "1180.00"},
+                ]
+            }
+        )
     )
     provider = CloudVisionProvider(
         api_key="test-key",
@@ -176,9 +212,9 @@ async def test_extract_builds_request_from_field_configs_without_network(
         client=mock_client,
     )
 
-    result = await provider.extract(PNG_BYTES, "", sample_field_configs)
+    result = await provider.extract([PNG_BYTES], "", sample_field_configs)
 
-    assert result == {"gstin": "29ABCDE1234F1Z5", "total_amount": "1180.00"}
+    assert result == [{"gstin": "29ABCDE1234F1Z5", "total_amount": "1180.00"}]
 
     mock_generate = mock_client.aio.models.generate_content
     mock_generate.assert_awaited_once()
@@ -187,12 +223,13 @@ async def test_extract_builds_request_from_field_configs_without_network(
 
     config: types.GenerateContentConfig = kwargs["config"]
     assert config.response_mime_type == "application/json"
-    assert set(config.response_json_schema["properties"]) == {"gstin", "total_amount"}
+    assert set(config.response_json_schema["properties"]) == {"invoices"}
 
     contents = kwargs["contents"]
     assert isinstance(contents[0], str)
     assert "gstin (GSTIN)" in contents[0]
-    assert isinstance(contents[1], types.Part)
+    assert contents[1] == "Page 1 of 1:"
+    assert isinstance(contents[2], types.Part)
 
 
 @pytest.mark.asyncio
@@ -200,7 +237,7 @@ async def test_extract_mocked_null_field_returns_none(
     sample_field_configs: list[FieldConfig],
 ) -> None:
     mock_client = _make_mock_client(
-        json.dumps({"gstin": None, "total_amount": "999.00"})
+        json.dumps({"invoices": [{"gstin": None, "total_amount": "999.00"}]})
     )
     provider = CloudVisionProvider(
         api_key="test-key",
@@ -208,10 +245,13 @@ async def test_extract_mocked_null_field_returns_none(
         client=mock_client,
     )
 
-    result = await provider.extract(PNG_BYTES, "ignored text layer", sample_field_configs)
+    result = await provider.extract(
+        [PNG_BYTES],
+        "ignored text layer",
+        sample_field_configs,
+    )
 
-    assert result["gstin"] is None
-    assert result["total_amount"] == "999.00"
+    assert result == [{"gstin": None, "total_amount": "999.00"}]
 
 
 @pytest.mark.asyncio
@@ -221,7 +261,9 @@ async def test_extract_retries_on_rate_limit(
     from google.genai import errors as genai_errors
 
     success_response = MagicMock()
-    success_response.text = json.dumps({"gstin": None, "total_amount": None})
+    success_response.text = json.dumps(
+        {"invoices": [{"gstin": None, "total_amount": None}]}
+    )
 
     mock_generate = AsyncMock(
         side_effect=[
@@ -239,9 +281,9 @@ async def test_extract_retries_on_rate_limit(
         max_retries=3,
     )
 
-    result = await provider.extract(PNG_BYTES, "", sample_field_configs)
+    result = await provider.extract([PNG_BYTES], "", sample_field_configs)
 
-    assert result == {"gstin": None, "total_amount": None}
+    assert result == [{"gstin": None, "total_amount": None}]
     assert mock_generate.await_count == 2
 
 
@@ -252,7 +294,9 @@ async def test_extract_retries_on_server_unavailable(
     from google.genai import errors as genai_errors
 
     success_response = MagicMock()
-    success_response.text = json.dumps({"gstin": "29ABCDE1234F1Z5", "total_amount": "100"})
+    success_response.text = json.dumps(
+        {"invoices": [{"gstin": "29ABCDE1234F1Z5", "total_amount": "100"}]}
+    )
 
     mock_generate = AsyncMock(
         side_effect=[
@@ -273,9 +317,9 @@ async def test_extract_retries_on_server_unavailable(
         max_retries=6,
     )
 
-    result = await provider.extract(PNG_BYTES, "", sample_field_configs)
+    result = await provider.extract([PNG_BYTES], "", sample_field_configs)
 
-    assert result["gstin"] == "29ABCDE1234F1Z5"
+    assert result[0]["gstin"] == "29ABCDE1234F1Z5"
     assert mock_generate.await_count == 2
 
 
@@ -302,6 +346,6 @@ async def test_extract_fails_only_after_retryable_errors_exhausted(
     )
 
     with pytest.raises(ProviderError, match="HTTP 503"):
-        await provider.extract(PNG_BYTES, "", sample_field_configs)
+        await provider.extract([PNG_BYTES], "", sample_field_configs)
 
     assert mock_generate.await_count == 3

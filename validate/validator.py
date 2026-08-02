@@ -213,6 +213,7 @@ def validate_fields(
     *,
     is_scanned: bool | None = None,
     text_layer_is_ocr: bool = False,
+    invoice_index: int = 1,
 ) -> DocumentResult:
     """Validate raw extracted values and assign per-field trust status."""
     scanned = (
@@ -239,6 +240,7 @@ def validate_fields(
 
     return DocumentResult(
         source_filename=source_filename,
+        invoice_index=invoice_index,
         fields=field_results,
         overall_status=_compute_overall_status(field_results),
     )
@@ -249,6 +251,8 @@ def validate_document(
     raw_fields: dict[str, Any],
     field_configs: list[FieldConfig],
     document: DocumentSource,
+    *,
+    invoice_index: int = 1,
 ) -> DocumentResult:
     """Validate raw fields using text layer and scan heuristic from a loaded document."""
     return validate_fields(
@@ -258,4 +262,5 @@ def validate_document(
         document.text_layer,
         is_scanned=document.is_scanned,
         text_layer_is_ocr=document.text_layer_is_ocr,
+        invoice_index=invoice_index,
     )

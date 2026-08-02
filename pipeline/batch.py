@@ -7,8 +7,9 @@ import logging
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
-from config.field_config import FieldConfig, load_field_configs
+from config.field_config import FieldConfig
 from models import DocumentResult, DocumentStatus, FieldResult, FieldStatus
 from output.csv_writer import write_csv
 from output.excel_writer import write_excel
@@ -27,9 +28,12 @@ def _failed_document_result(
     source_filename: str,
     field_configs: list[FieldConfig],
     error_message: str,
+    *,
+    invoice_index: int = 1,
 ) -> DocumentResult:
     return DocumentResult(
         source_filename=source_filename,
+        invoice_index=invoice_index,
         fields={
             cfg.key: FieldResult(
                 status=FieldStatus.NOT_FOUND,
@@ -42,48 +46,73 @@ def _failed_document_result(
     )
 
 
+def _validate_invoices(
+    source_filename: str,
+    raw_invoices: list[dict[str, Any]],
+    field_configs: list[FieldConfig],
+    document,
+) -> list[DocumentResult]:
+    """Apply corrections + validation to each extracted invoice independently."""
+    multi_invoice = len(raw_invoices) > 1
+    results: list[DocumentResult] = []
+    for index, raw_fields in enumerate(raw_invoices, start=1):
+        corrected = apply_text_layer_corrections(
+            raw_fields,
+            document,
+            allow_single_gstin_replace=not multi_invoice,
+        )
+        results.append(
+            validate_document(
+                source_filename,
+                corrected,
+                field_configs,
+                document,
+                invoice_index=index,
+            )
+        )
+    return results
+
+
 async def process_document(
     file_path: Path,
     field_configs: list[FieldConfig],
     provider: VisionProvider,
-) -> DocumentResult:
-    """Process one PDF through load → extract → validate.
+) -> list[DocumentResult]:
+    """Process one PDF/image through load → extract → validate.
 
-    Multi-page limitation: only page 1 is sent to the vision model. Most GST
-    invoices are single-page; multi-page support (merge or per-page extraction)
-    is not implemented yet — see TODO below.
-
-    TODO: When ``page_count > 1``, decide whether to merge pages, iterate, or
-    flag the document for review instead of silently using page 1 only.
+    Returns one ``DocumentResult`` per distinct invoice found in the file.
+    All pages are sent to the vision model (subject to provider page limits).
     """
     try:
         document = load_document(file_path)
+        page_images = [page.image_bytes for page in document.pages]
         if document.page_count > 1:
-            logger.warning(
-                "%s has %d pages; extracting page 1 only (multi-page not yet supported)",
+            logger.info(
+                "%s has %d pages; sending all pages for multi-invoice extraction",
                 file_path.name,
                 document.page_count,
             )
 
-        first_page = document.pages[0]
-        raw_fields = await provider.extract(
-            first_page.image_bytes,
+        raw_invoices = await provider.extract(
+            page_images,
             document.text_layer,
             field_configs,
         )
-        raw_fields = apply_text_layer_corrections(raw_fields, document)
-        return validate_document(
+        if not raw_invoices:
+            raise ProviderError("Provider returned no invoices")
+
+        return _validate_invoices(
             file_path.name,
-            raw_fields,
+            raw_invoices,
             field_configs,
             document,
         )
     except (PdfLoadError, ProviderError) as exc:
         logger.exception("Document failed (%s): %s", file_path.name, exc)
-        return _failed_document_result(file_path.name, field_configs, str(exc))
-    except Exception as exc:  # noqa: BLE001 — per-doc isolation; N in = N rows out
+        return [_failed_document_result(file_path.name, field_configs, str(exc))]
+    except Exception as exc:  # noqa: BLE001 — per-doc isolation
         logger.exception("Unexpected error processing %s", file_path.name)
-        return _failed_document_result(file_path.name, field_configs, str(exc))
+        return [_failed_document_result(file_path.name, field_configs, str(exc))]
 
 
 async def process_batch(
@@ -96,8 +125,8 @@ async def process_batch(
 ) -> list[DocumentResult]:
     """Process many PDFs with bounded concurrency and per-document isolation.
 
-    Each path yields exactly one ``DocumentResult`` in the same order as
-    ``pdf_paths``, whether processing succeeded or failed.
+    Each path yields one or more ``DocumentResult`` rows (one per invoice), in
+    file order. Failures still produce a single FAILED row for that file.
 
     Keep ``max_concurrency`` modest (3–5 on Gemini Flash) to reduce 503 overload
     errors when Google's model is under heavy load; higher values fan out more
@@ -112,25 +141,31 @@ async def process_batch(
     progress_lock = asyncio.Lock()
     completed_count = 0
 
-    async def _run(path: Path) -> DocumentResult:
+    async def _run(path: Path) -> list[DocumentResult]:
         nonlocal completed_count
         async with semaphore:
             logger.info("Starting %s", path.name)
-            result = await process_document(path, field_configs, provider)
+            results = await process_document(path, field_configs, provider)
 
         async with progress_lock:
             completed_count += 1
             if progress_callback is not None:
                 progress_callback(completed_count, total, path.name)
 
+        statuses = ",".join(r.overall_status.value for r in results)
         logger.info(
-            "Finished %s -> %s",
+            "Finished %s -> %d invoice(s) [%s]",
             path.name,
-            result.overall_status.value,
+            len(results),
+            statuses,
         )
-        return result
+        return results
 
-    return list(await asyncio.gather(*[_run(path) for path in paths]))
+    nested = await asyncio.gather(*[_run(path) for path in paths])
+    flattened: list[DocumentResult] = []
+    for group in nested:
+        flattened.extend(group)
+    return flattened
 
 
 def run_batch(

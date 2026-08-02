@@ -32,20 +32,32 @@ SMOKE_RAW = {
     "total_invoice_value": "5,168.40",
 }
 
+SMOKE_RAW_B = {
+    **SMOKE_RAW,
+    "invoice_number": "AME/3",
+    "total_taxable_value": "1000.00",
+    "igst_amount": "180.00",
+    "total_invoice_value": "1,180.00",
+}
+
 
 class _StaticProvider(VisionProvider):
-    def __init__(self, raw_fields: dict[str, Any] | None = None) -> None:
-        self._raw_fields = raw_fields or SMOKE_RAW
+    def __init__(
+        self,
+        raw_invoices: list[dict[str, Any]] | None = None,
+    ) -> None:
+        self._raw_invoices = raw_invoices or [SMOKE_RAW]
         self.call_count = 0
 
     async def extract(
         self,
-        image_bytes: bytes,
+        page_images: list[bytes],
         text_layer: str,
         field_configs: list[FieldConfig],
-    ) -> dict[str, Any]:
+    ) -> list[dict[str, Any]]:
         self.call_count += 1
-        return dict(self._raw_fields)
+        assert page_images  # all pages should be passed through
+        return [dict(invoice) for invoice in self._raw_invoices]
 
 
 @pytest.fixture
@@ -75,9 +87,9 @@ async def test_batch_provider_error_isolates_failed_document(
     provider = _StaticProvider()
     provider.extract = AsyncMock(  # type: ignore[method-assign]
         side_effect=[
-            dict(SMOKE_RAW),
+            [dict(SMOKE_RAW)],
             ProviderError("Gemini API error (HTTP 500): simulated failure"),
-            dict(SMOKE_RAW),
+            [dict(SMOKE_RAW)],
         ]
     )
 
@@ -89,6 +101,7 @@ async def test_batch_provider_error_isolates_failed_document(
         "invoice_b_bad.pdf",
         "invoice_c.pdf",
     ]
+    assert results[0].invoice_index == 1
     assert results[0].overall_status != DocumentStatus.FAILED
     assert results[1].overall_status == DocumentStatus.FAILED
     assert "simulated failure" in (results[1].error_message or "")
@@ -96,6 +109,27 @@ async def test_batch_provider_error_isolates_failed_document(
     assert results[0].fields["supplier_gstin"].status == FieldStatus.OK
     assert results[2].fields["supplier_gstin"].status == FieldStatus.OK
     assert provider.extract.await_count == 3
+
+
+@pytest.mark.asyncio
+async def test_batch_multi_invoice_pdf_yields_multiple_rows(
+    tmp_path: Path,
+    field_configs: list[FieldConfig],
+) -> None:
+    path = _copy_fixture(tmp_path, "pack.pdf")
+    provider = _StaticProvider(raw_invoices=[SMOKE_RAW, SMOKE_RAW_B])
+
+    results = await process_batch([path], field_configs, provider, max_concurrency=1)
+
+    assert len(results) == 2
+    assert results[0].source_filename == "pack.pdf"
+    assert results[1].source_filename == "pack.pdf"
+    assert results[0].invoice_index == 1
+    assert results[1].invoice_index == 2
+    assert results[0].fields["invoice_number"].value == "AME/2"
+    assert results[1].fields["invoice_number"].value == "AME/3"
+    assert results[0].overall_status != DocumentStatus.FAILED
+    assert results[1].overall_status != DocumentStatus.FAILED
 
 
 @pytest.mark.asyncio
@@ -136,17 +170,17 @@ async def test_batch_respects_concurrency_limit(
 
         async def extract(
             self,
-            image_bytes: bytes,
+            page_images: list[bytes],
             text_layer: str,
             field_configs: list[FieldConfig],
-        ) -> dict[str, Any]:
+        ) -> list[dict[str, Any]]:
             async with self._lock:
                 self.active += 1
                 self.max_active = max(self.max_active, self.active)
             await asyncio.sleep(0.05)
             async with self._lock:
                 self.active -= 1
-            return dict(SMOKE_RAW)
+            return [dict(SMOKE_RAW)]
 
     provider = ConcurrencyTrackingProvider()
     results = await process_batch(paths, field_configs, provider, max_concurrency=2)
@@ -166,7 +200,7 @@ def test_run_batch_writes_timestamped_outputs(
     pdf_path.write_bytes(FIXTURE_PDF.read_bytes())
     out_dir = tmp_path / "outputs"
 
-    excel_path, csv_path, _ = run_batch(
+    excel_path, csv_path, results = run_batch(
         [pdf_path],
         field_configs,
         _StaticProvider(),
@@ -180,3 +214,5 @@ def test_run_batch_writes_timestamped_outputs(
     assert csv_path.parent == out_dir
     assert excel_path.name.startswith("invoices_")
     assert csv_path.name.startswith("invoices_")
+    assert len(results) == 1
+    assert results[0].invoice_index == 1

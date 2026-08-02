@@ -53,6 +53,7 @@ export function InspectDetailsModal({ document, fields, onClose }: InspectDetail
             <h3 className="mt-1 truncate text-lg font-semibold text-slate-900">
               {document.source_filename}
             </h3>
+            <p className="mt-1 text-sm text-slate-500">Invoice #{document.invoice_index}</p>
             <div className="mt-2">
               <span className={overallStatusClasses(document.overall_status)}>
                 {document.overall_status}

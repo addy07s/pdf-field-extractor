@@ -67,6 +67,7 @@ def test_extract_returns_document_results(
         [
             DocumentResult(
                 source_filename="invoice.pdf",
+                invoice_index=1,
                 fields={
                     "supplier_gstin": FieldResult(
                         value="22AAAAA0000A1Z5",
@@ -88,6 +89,7 @@ def test_extract_returns_document_results(
     assert body["csv_path"].endswith("invoices_test.csv")
     assert len(body["results"]) == 1
     assert body["results"][0]["source_filename"] == "invoice.pdf"
+    assert body["results"][0]["invoice_index"] == 1
     assert body["results"][0]["overall_status"] == "OK"
     assert body["results"][0]["fields"]["supplier_gstin"]["status"] == "OK"
     assert body["results"][0]["fields"]["supplier_gstin"]["value"] == "22AAAAA0000A1Z5"

@@ -24,6 +24,8 @@ export interface FieldResult {
 
 export interface DocumentResult {
   source_filename: string;
+  /** 1-based index of this invoice within the source file. */
+  invoice_index: number;
   fields: Record<string, FieldResult>;
   overall_status: DocumentStatus;
   error_message: string | null;

@@ -20,7 +20,12 @@ class ConfigResponse(BaseModel):
 
 
 class ExtractResponse(BaseModel):
-    """Batch extraction outcome — one DocumentResult per uploaded file."""
+    """Batch extraction outcome — one DocumentResult per extracted invoice.
+
+    A single uploaded PDF may contribute multiple results (one row / invoice).
+    Use ``source_filename`` + ``invoice_index`` as the stable identity when
+    persisting rows to a database.
+    """
 
     results: list[DocumentResult]
     excel_path: str = Field(description="Relative path to the generated Excel file")

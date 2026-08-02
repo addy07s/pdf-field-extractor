@@ -17,9 +17,9 @@ class OllamaVisionProvider(VisionProvider):
 
     async def extract(
         self,
-        image_bytes: bytes,
+        page_images: list[bytes],
         text_layer: str,
         field_configs: list[FieldConfig],
-    ) -> dict[str, Any]:
+    ) -> list[dict[str, Any]]:
         # TODO: Build JSON schema + prompt from field_configs, POST to Ollama /api/chat.
         raise NotImplementedError("Ollama vision extraction not yet implemented")

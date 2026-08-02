@@ -18,7 +18,7 @@ class FieldStatus(str, Enum):
 
 
 class DocumentStatus(str, Enum):
-    """Aggregate outcome for a single source document."""
+    """Aggregate outcome for a single extracted invoice."""
 
     OK = "OK"
     PARTIAL = "PARTIAL"
@@ -34,9 +34,14 @@ class FieldResult(BaseModel):
 
 
 class DocumentResult(BaseModel):
-    """End-to-end result for one invoice document."""
+    """End-to-end result for one extracted invoice (one row in exports/API).
+
+    A single uploaded PDF may yield multiple ``DocumentResult`` rows when it
+    contains multiple invoices. ``invoice_index`` is 1-based within that file.
+    """
 
     source_filename: str
+    invoice_index: int = Field(default=1, ge=1)
     fields: dict[str, FieldResult] = Field(default_factory=dict)
     overall_status: DocumentStatus = DocumentStatus.OK
     error_message: str | None = None

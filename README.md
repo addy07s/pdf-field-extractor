@@ -1,6 +1,6 @@
 # GST Invoice Field Extractor (Production Grade v2)
 
-Extract structured fields from Indian GST tax invoices—digital PDFs and scanned images—and export a styled **Excel** file and companion **CSV**, one row per document. A vision model reads each invoice; deterministic validators decide what to trust. Values that fail validation or look uncertain are **visually flagged** so reviewers focus only on what needs checking.
+Extract structured fields from Indian GST tax invoices—digital PDFs and scanned images—and export a styled **Excel** file and companion **CSV**, one row per extracted invoice. A single PDF may contain multiple invoices; each becomes its own row (`Source File` + `Invoice #`). A vision model reads each document; deterministic validators decide what to trust. Values that fail validation or look uncertain are **visually flagged** so reviewers focus only on what needs checking.
 
 ---
 
@@ -15,7 +15,7 @@ This project uses a **decoupled client–server design**:
 | **Engine** | `pipeline/`, `validate/`, `extract/` | Extraction, validation, and trust scoring (frozen) |
 
 - **`GET /api/config`** — field layout from `config/fields.yaml` plus runtime metadata (provider, OCR status, concurrency).
-- **`POST /api/extract`** — multipart batch upload; returns `DocumentResult[]`, `excel_path`, and `csv_path`.
+- **`POST /api/extract`** — multipart batch upload; returns `DocumentResult[]` (one entry per extracted invoice, with `invoice_index`), `excel_path`, and `csv_path`.
 
 Batch processing runs inside **worker threads** via `asyncio.to_thread()`. This isolates the synchronous `run_batch()` pipeline (which uses `asyncio.run()` internally) from FastAPI/uvicorn's async event loop, preventing nested event-loop errors while keeping the pipeline code unchanged.
 
@@ -305,7 +305,7 @@ The CSV **Flags** column lists every non-OK field and reason for spreadsheet-onl
 ## Known limitations
 
 - **Scanned / image invoices** — OCR text is lower trust than a native PDF text layer. Grounding uses fuzzy matching on OCR text. Unreadable scans still flag for review.
-- **Multi-page PDFs** — only **page 1** is sent to the vision model today. Multi-page support is planned; check long invoices manually.
+- **Multi-page / multi-invoice PDFs** — all pages are sent to the vision model (capped per request). Gemini returns an `invoices[]` array; each invoice is validated and exported as its own row. Very large packs may hit model payload limits — spot-check long batches.
 - **Free-tier API keys** — strict daily and per-minute limits. Large batches will see `FAILED` rows with rate-limit errors. Use a paid key or Ollama for production volume.
 - **Vision model errors** — occasional misreads are mitigated by text-layer correction on digital PDFs and by validation; always review flagged cells.
 

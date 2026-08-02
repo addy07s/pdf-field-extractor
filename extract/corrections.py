@@ -90,6 +90,8 @@ def _choose_text_layer_value(
 def apply_text_layer_corrections(
     raw_fields: dict[str, Any],
     document: DocumentSource,
+    *,
+    allow_single_gstin_replace: bool = True,
 ) -> dict[str, Any]:
     """Prefer exact text-layer GSTIN/PAN values over misread AI proposals.
 
@@ -98,6 +100,10 @@ def apply_text_layer_corrections(
 
     With separate supplier/recipient GSTINs, a lone text-layer GSTIN may only
     auto-correct ``supplier_gstin`` — never invent a recipient GSTIN.
+
+    When ``allow_single_gstin_replace`` is False (multi-invoice documents), a
+    lone text GSTIN will not overwrite a mismatched AI supplier GSTIN — that
+    value may belong to a different invoice in the same PDF.
     """
     if is_text_layer_near_empty(document.text_layer):
         return raw_fields
@@ -111,7 +117,9 @@ def apply_text_layer_corrections(
             continue
         ai_gstin = _normalize_field_value(corrected.get(gstin_key))
         # Only supplier may be replaced from a single unmatched text GSTIN.
-        allow_replace = gstin_key == _SUPPLIER_GSTIN_KEY
+        allow_replace = (
+            allow_single_gstin_replace and gstin_key == _SUPPLIER_GSTIN_KEY
+        )
         corrected[gstin_key] = _choose_text_layer_value(
             gstin_key,
             ai_gstin,

@@ -20,15 +20,25 @@ _ENV_API_KEY = "GEMINI_API_KEY"
 _ENV_MODEL = "GEMINI_MODEL"
 
 _SYSTEM_INSTRUCTION = (
-    "You are extracting fields from an Indian GST tax invoice. "
-    "For each requested field, return the exact value as it appears in the document, "
-    "or null if it is not present or you cannot read it confidently. "
+    "You are extracting fields from Indian GST tax invoice document(s). "
+    "A single uploaded PDF or image set may contain one invoice or many separate "
+    "invoices (for example distinct invoice numbers, dates, supplier headers, or "
+    "page breaks). Scan every attached page carefully and identify each distinct "
+    "invoice. Return one structured object per invoice inside the top-level "
+    "`invoices` array — if the document has N invoices, `invoices` must contain "
+    "exactly N objects (never merge multiple invoices into one object). "
+    "For each invoice object and each requested field, return the exact value as "
+    "it appears on that invoice, or null if it is not present or you cannot read "
+    "it confidently. "
     "Exception for tax buckets: cgst_amount, sgst_amount, and igst_amount must always "
     "be numeric invoice grand totals — use 0.0 when that tax is not shown (never null). "
     "Never merge CGST/SGST/IGST into one field. Never extract per-line tax rates. "
     "Intra-state invoices use CGST+SGST with igst_amount=0.0; inter-state invoices use "
     "IGST with cgst_amount=0.0 and sgst_amount=0.0. "
-    "Do NOT guess or fabricate other values. Return only the structured object."
+    "For every invoice, total_taxable_value + cgst_amount + sgst_amount + igst_amount "
+    "must equal total_invoice_value. "
+    "Do NOT guess or fabricate other values. Return only the structured object with "
+    "an `invoices` array."
 )
 
 _TAX_AMOUNT_KEYS = frozenset({"cgst_amount", "sgst_amount", "igst_amount"})
@@ -36,18 +46,11 @@ _TAX_AMOUNT_KEYS = frozenset({"cgst_amount", "sgst_amount", "igst_amount"})
 _MAX_RETRIES = 6
 _BASE_BACKOFF_SEC = 1.0
 _RETRYABLE_STATUS_CODES = frozenset({429, 500, 503})
+_MAX_PAGES_PER_REQUEST = 30
 
 
-def build_field_guidance(field_configs: list[FieldConfig]) -> str:
-    """Build per-field extraction guidance from YAML-driven configs."""
-    lines = ["Extract the following fields from the attached invoice image:", ""]
-    for field in field_configs:
-        lines.append(f"- {field.key} ({field.display_label}): {field.description}")
-    return "\n".join(lines)
-
-
-def build_response_schema(field_configs: list[FieldConfig]) -> dict[str, Any]:
-    """Build a JSON Schema object with one nullable string property per field key."""
+def build_invoice_item_schema(field_configs: list[FieldConfig]) -> dict[str, Any]:
+    """Build the per-invoice JSON Schema object (field keys → nullable string)."""
     properties = {
         field.key: {
             "type": ["string", "null"],
@@ -63,6 +66,41 @@ def build_response_schema(field_configs: list[FieldConfig]) -> dict[str, Any]:
     }
 
 
+def build_field_guidance(field_configs: list[FieldConfig]) -> str:
+    """Build per-field extraction guidance from YAML-driven configs."""
+    lines = [
+        "Scan every attached page and extract EVERY distinct Indian GST invoice.",
+        "Return JSON shaped as {\"invoices\": [ /* one object per invoice */ ]}.",
+        "If there is only one invoice, still return a one-element invoices array.",
+        "Do not combine separate invoices. Fields to extract for each invoice:",
+        "",
+    ]
+    for field in field_configs:
+        lines.append(f"- {field.key} ({field.display_label}): {field.description}")
+    return "\n".join(lines)
+
+
+def build_response_schema(field_configs: list[FieldConfig]) -> dict[str, Any]:
+    """Build wrapper JSON Schema: ``{ invoices: [ InvoiceData, ... ] }``."""
+    invoice_schema = build_invoice_item_schema(field_configs)
+    return {
+        "type": "object",
+        "properties": {
+            "invoices": {
+                "type": "array",
+                "description": (
+                    "One entry per distinct invoice found in the document. "
+                    "Length must equal the number of invoices (1 or more)."
+                ),
+                "items": invoice_schema,
+                "minItems": 1,
+            }
+        },
+        "required": ["invoices"],
+        "additionalProperties": False,
+    }
+
+
 def build_generate_config(field_configs: list[FieldConfig]) -> types.GenerateContentConfig:
     """Build Gemini structured-output config from field configs."""
     return types.GenerateContentConfig(
@@ -73,16 +111,20 @@ def build_generate_config(field_configs: list[FieldConfig]) -> types.GenerateCon
 
 
 def build_contents(
-    image_bytes: bytes,
+    page_images: list[bytes],
     field_configs: list[FieldConfig],
     *,
     mime_type: str = "image/png",
 ) -> list[types.Part | str]:
-    """Build multimodal request contents: field guidance text + inline image."""
-    return [
-        build_field_guidance(field_configs),
-        types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
-    ]
+    """Build multimodal request: field guidance + one inline image per page."""
+    if not page_images:
+        raise ProviderError("At least one page image is required for extraction")
+
+    contents: list[types.Part | str] = [build_field_guidance(field_configs)]
+    for index, image_bytes in enumerate(page_images, start=1):
+        contents.append(f"Page {index} of {len(page_images)}:")
+        contents.append(types.Part.from_bytes(data=image_bytes, mime_type=mime_type))
+    return contents
 
 
 def normalize_raw_values(
@@ -107,11 +149,19 @@ def normalize_raw_values(
     return normalized
 
 
+def _looks_like_flat_invoice(parsed: dict[str, Any], field_configs: list[FieldConfig]) -> bool:
+    """True when the object looks like a single invoice field map (legacy shape)."""
+    if "invoices" in parsed:
+        return False
+    field_keys = {field.key for field in field_configs}
+    return bool(field_keys.intersection(parsed.keys()))
+
+
 def parse_structured_response(
     response_text: str,
     field_configs: list[FieldConfig],
-) -> dict[str, Any]:
-    """Parse JSON model output into normalized raw field values."""
+) -> list[dict[str, Any]]:
+    """Parse JSON model output into a list of normalized invoice field maps."""
     try:
         parsed = json.loads(response_text)
     except json.JSONDecodeError as exc:
@@ -120,7 +170,29 @@ def parse_structured_response(
     if not isinstance(parsed, dict):
         raise ProviderError("Gemini response JSON must be an object")
 
-    return normalize_raw_values(parsed, field_configs)
+    if "invoices" in parsed:
+        invoices = parsed["invoices"]
+        if not isinstance(invoices, list):
+            raise ProviderError("Gemini response `invoices` must be an array")
+        if not invoices:
+            raise ProviderError("Gemini returned an empty `invoices` array")
+        normalized_invoices: list[dict[str, Any]] = []
+        for index, item in enumerate(invoices, start=1):
+            if not isinstance(item, dict):
+                raise ProviderError(
+                    f"Gemini invoice object at index {index} must be an object"
+                )
+            normalized_invoices.append(normalize_raw_values(item, field_configs))
+        return normalized_invoices
+
+    # Backward compatibility: flat single-invoice object.
+    if _looks_like_flat_invoice(parsed, field_configs):
+        return [normalize_raw_values(parsed, field_configs)]
+
+    raise ProviderError(
+        "Gemini response must include an `invoices` array "
+        "(or a flat single-invoice field object)"
+    )
 
 
 def _resolve_api_key(api_key: str | None) -> str:
@@ -158,11 +230,13 @@ class CloudVisionProvider(VisionProvider):
         *,
         client: genai.Client | None = None,
         max_retries: int = _MAX_RETRIES,
+        max_pages: int = _MAX_PAGES_PER_REQUEST,
     ) -> None:
         self._api_key = _resolve_api_key(api_key)
         self._model = _resolve_model(model)
         self._client = client
         self._max_retries = max_retries
+        self._max_pages = max_pages
 
     def _get_client(self) -> genai.Client:
         if self._client is None:
@@ -171,15 +245,21 @@ class CloudVisionProvider(VisionProvider):
 
     async def extract(
         self,
-        image_bytes: bytes,
+        page_images: list[bytes],
         text_layer: str,
         field_configs: list[FieldConfig],
-    ) -> dict[str, Any]:
+    ) -> list[dict[str, Any]]:
         if not field_configs:
-            return {}
+            return []
+        if not page_images:
+            raise ProviderError("At least one page image is required for extraction")
+
+        images = page_images
+        if len(images) > self._max_pages:
+            images = images[: self._max_pages]
 
         config = build_generate_config(field_configs)
-        contents = build_contents(image_bytes, field_configs)
+        contents = build_contents(images, field_configs)
 
         try:
             response = await self._generate_with_retry(contents, config)
