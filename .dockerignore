@@ -24,3 +24,9 @@ smoke_output.*
 tests/fixtures/samples/
 frontend/node_modules/
 frontend/dist/
+scripts/
+ui/
+app.py
+tests/
+pytest.ini
+*.md

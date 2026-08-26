@@ -128,7 +128,7 @@ git clone <your-repo-url>
 cd pdf-field-extractor
 python -m venv .venv
 .venv\Scripts\activate
-pip install -r requirements.txt
+pip install -r requirements-dev.txt
 copy .env.example .env
 ```
 
@@ -139,7 +139,7 @@ git clone <your-repo-url>
 cd pdf-field-extractor
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements-dev.txt
 cp .env.example .env
 ```
 
@@ -348,21 +348,26 @@ npm run build
 
 ## Docker deployment (production v2)
 
-The multi-stage `Dockerfile` builds the React UI and runs FastAPI + Uvicorn on port **8501** (same port as the legacy ECS service).
+The multi-stage `Dockerfile` builds the React UI and runs FastAPI + Uvicorn. Default listen port is **8000** (override with `PORT`). Production image deps come from `requirements.txt`; local/dev extras are in `requirements-dev.txt`.
 
 **Build and run locally**
 
 ```bash
 docker build -t pdf-field-extractor .
-docker run --rm -p 8501:8501 \
+docker run --rm -p 8000:8000 \
   -e GEMINI_API_KEY=your-gemini-api-key-here \
   -e GEMINI_MODEL=gemini-2.5-flash \
   -e VISION_PROVIDER=cloud \
   -e BATCH_CONCURRENCY=1 \
+  -e PORT=8000 \
   pdf-field-extractor
 ```
 
-Open `http://localhost:8501` — the React app and API are served from the same origin.
+Open `http://localhost:8000` — the React app and API are served from the same origin.
+
+**Caasify / other CaaS**
+
+Point the service at the repo root `Dockerfile`. Set env vars (`GEMINI_API_KEY`, `GEMINI_MODEL`, `VISION_PROVIDER`, `BATCH_CONCURRENCY`, optional `PORT`). Health check path: `/health`.
 
 **Deploy to AWS ECS (us-east-1)**
 
@@ -372,11 +377,13 @@ Open `http://localhost:8501` — the React app and API are served from the same 
 
 This script builds the image, pushes to ECR (`712789090051.dkr.ecr.us-east-1.amazonaws.com/pdf-field-extractor`), and forces a rolling deployment on cluster `pdf-extractor-cluster-2`.
 
+If the ECS task still maps container port **8501**, set `PORT=8501` in the task definition (or update the service to map **8000**).
+
 | Resource | Name |
 | -------- | ---- |
 | ECR repository | `pdf-field-extractor` |
 | ECS cluster | `pdf-extractor-cluster-2` |
 | ECS service | `pdf-extractor-task-service-unsxhlzw` |
-| Container port | `8501` |
+| Default container port | `8000` (override with `PORT`) |
 
 Never bake secrets into the image — configure `GEMINI_API_KEY` in the ECS task definition (prefer AWS Secrets Manager over plaintext environment variables).
